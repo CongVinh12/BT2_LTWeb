@@ -5,21 +5,27 @@ COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-# Stage 2: Chạy ứng dụng trên Tomcat 10.1
+# Stage 2: Khởi chạy trên Tomcat 10.1
 FROM tomcat:10.1-jdk21
 
-# 1. Cấu hình log Console ngay lúc build
-RUN sed -i 's/handlers = .*/handlers = java.util.logging.ConsoleHandler/g' /usr/local/tomcat/conf/logging.properties && \
-    sed -i 's/\.handlers = .*/.handlers = java.util.logging.ConsoleHandler/g' /usr/local/tomcat/conf/logging.properties
+# 1. Chuyển log ra Console chống lỗi Read-only file system
+RUN sed -i 's/^handlers = .*/handlers = java.util.logging.ConsoleHandler/' /usr/local/tomcat/conf/logging.properties && \
+    sed -i 's/^\.handlers = .*/.handlers = java.util.logging.ConsoleHandler/' /usr/local/tomcat/conf/logging.properties
 
-# 2. Xóa các ứng dụng mẫu mặc định của Tomcat
+# 2. TẮT QUÉT TLD & JAR: Giúp Tomcat khởi động từ 90s xuống còn 2-3s (vượt qua Health Check ngay lập tức)
+RUN sed -i 's/tomcat.util.scan.StandardJarScanFilter.jarsToSkip=/tomcat.util.scan.StandardJarScanFilter.jarsToSkip=*.jar,/g' /usr/local/tomcat/conf/catalina.properties
+
+# 3. Tạo thư mục work/temp sang /tmp để tránh lỗi phân quyền
+RUN rm -rf /usr/local/tomcat/work /usr/local/tomcat/temp && \
+    mkdir -p /tmp/work /tmp/temp && \
+    ln -s /tmp/work /usr/local/tomcat/work && \
+    ln -s /tmp/temp /usr/local/tomcat/temp
+
+# 4. Xóa ứng dụng mặc định và copy WAR mới
 RUN rm -rf /usr/local/tomcat/webapps/*
-
-# 3. Copy WAR vào ROOT
 COPY --from=build /app/target/*.war /usr/local/tomcat/webapps/ROOT.war
 
 ENV PORT=8080
 EXPOSE 8080
 
-# 4. Tạo thư mục tạm tại /tmp và gán trực tiếp qua biến JVM lúc khởi động
-CMD ["sh", "-c", "mkdir -p /tmp/work /tmp/temp && catalina.sh run"]
+CMD ["catalina.sh", "run"]
